@@ -2,10 +2,51 @@ import streamlit as st
 import requests
 import folium
 from streamlit_folium import st_folium
+
 API = "https://venomgrid-ai.onrender.com/api"
 st.set_page_config(page_title="VenomGrid AI", layout="wide")
 st.title("🏆 VenomGrid AI")
 st.caption("Predict. Prepare. Prioritize.")
+
+# ---------- Cached data fetchers ----------
+# TTL means these only actually hit the backend once every 30s, instead of
+# on every single button click across every tab (which is what was happening
+# before — Streamlit reruns the whole script top-to-bottom on ANY interaction,
+# so a Tab 3 click was silently re-fetching + re-rendering Tab 1 and Tab 2 too).
+
+@st.cache_data(ttl=30)
+def get_risk_data():
+    return requests.get(f"{API}/risk").json()
+
+@st.cache_data(ttl=30)
+def get_hospitals():
+    return requests.get(f"{API}/hospitals").json()
+
+@st.cache_data(ttl=30)
+def get_redistribution():
+    return requests.get(f"{API}/redistribution").json()
+
+@st.cache_data(ttl=15)
+def get_cases():
+    return requests.get(f"{API}/cases").json()
+
+
+def render_as_markdown(rows, columns=None):
+    """Render a list of dicts as a markdown table instead of st.table().
+    Avoids the pandas/pyarrow conversion path entirely, which is what was
+    causing segfaults under repeated reruns on Streamlit Cloud."""
+    if not rows:
+        st.info("No data to display.")
+        return
+    cols = columns or list(rows[0].keys())
+    header = "| " + " | ".join(cols) + " |"
+    divider = "| " + " | ".join(["---"] * len(cols)) + " |"
+    lines = [header, divider]
+    for row in rows:
+        values = [str(row.get(c, "")) for c in cols]
+        lines.append("| " + " | ".join(values) + " |")
+    st.markdown("\n".join(lines))
+
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🗺️ RiskAI — Hotspots",
@@ -18,24 +59,33 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.subheader("Predicted snakebite risk by village")
     try:
-        risk_data = requests.get(f"{API}/risk").json()
+        risk_data = get_risk_data()
     except Exception:
         st.error("Backend not reachable. Run `python backend/app.py` first.")
         risk_data = []
 
     if risk_data:
-        m = folium.Map(location=[17.5, 80.0], zoom_start=8)
-        color_map = {"High": "red", "Moderate": "orange", "Low": "green"}
-        for v in risk_data:
-            folium.CircleMarker(
-                location=[v["lat"], v["lon"]],
-                radius=10,
-                popup=f"{v['village']} — {v['risk_tier']} ({v['risk_score']})",
-                color=color_map.get(v["risk_tier"], "blue"),
-                fill=True,
-            ).add_to(m)
+        # Cache the map object itself so it isn't rebuilt from scratch on
+        # every rerun (e.g. clicking "Report Case" in Tab 3). Only rebuilds
+        # when risk_data actually changes, since risk_data is passed in as
+        # the cache key.
+        @st.cache_resource(hash_funcs={list: lambda v: str(v)})
+        def build_risk_map(data):
+            m = folium.Map(location=[17.5, 80.0], zoom_start=8)
+            color_map = {"High": "red", "Moderate": "orange", "Low": "green"}
+            for v in data:
+                folium.CircleMarker(
+                    location=[v["lat"], v["lon"]],
+                    radius=10,
+                    popup=f"{v['village']} — {v['risk_tier']} ({v['risk_score']})",
+                    color=color_map.get(v["risk_tier"], "blue"),
+                    fill=True,
+                ).add_to(m)
+            return m
+
+        m = build_risk_map(risk_data)
         st_folium(m, width=900, height=450)
-        st.table(risk_data)
+        render_as_markdown(risk_data)
         st.info("Note: risk scores are computed from a simulated dataset for this demo. "
                  "In production this pulls live rainfall/vegetation data and historical case records.")
 
@@ -43,14 +93,14 @@ with tab1:
 with tab2:
     st.subheader("Hospital antivenom stock levels")
     try:
-        hosp_data = requests.get(f"{API}/hospitals").json()
-        redist = requests.get(f"{API}/redistribution").json()
+        hosp_data = get_hospitals()
+        redist = get_redistribution()
     except Exception:
         st.error("Backend not reachable.")
         hosp_data, redist = [], []
 
     if hosp_data:
-        st.table([
+        render_as_markdown([
             {
                 "Hospital": h["name"],
                 "District": h["district"],
@@ -75,7 +125,14 @@ with tab2:
 with tab3:
     st.subheader("Simulate a reported snakebite case")
 
-    village = st.selectbox("Village", [v["village"] for v in risk_data] if risk_data else ["Demo Village"])
+    # Reuse the cached risk_data fetched in Tab 1's block above, falling back
+    # if Tab 1 hasn't populated it for some reason.
+    try:
+        village_options = [v["village"] for v in get_risk_data()]
+    except Exception:
+        village_options = ["Demo Village"]
+
+    village = st.selectbox("Village", village_options)
     lat = st.number_input("Latitude", value=17.6, format="%.4f")
     lon = st.number_input("Longitude", value=80.0, format="%.4f")
     time_since_bite = st.slider("Minutes since bite", 0, 180, 20)
@@ -109,6 +166,10 @@ with tab3:
                         f"{best['antivenom_stock']} units in stock)")
             else:
                 st.error("No viable hospital found with available antivenom stock.")
+
+            # New case was reported — clear the cases cache so Tab 4 shows it
+            # on next view, without forcing every other tab to also refetch.
+            get_cases.clear()
         except Exception as e:
             st.error(f"Could not reach backend: {e}")
 
@@ -116,7 +177,7 @@ with tab3:
 with tab4:
     st.subheader("Live incident view")
     try:
-        cases = requests.get(f"{API}/cases").json()
+        cases = get_cases()
     except Exception:
         st.error("Backend not reachable.")
         cases = []
