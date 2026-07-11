@@ -3,7 +3,7 @@ import requests
 import folium
 from streamlit_folium import st_folium
 
-API = "http://localhost:5000/api"
+API = "https://venomgrid-backend.onrender.com/api"
 
 st.set_page_config(page_title="VenomGrid AI", layout="wide")
 st.title("🏆 VenomGrid AI")
