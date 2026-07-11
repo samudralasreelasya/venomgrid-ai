@@ -1,0 +1,6 @@
+hospital_id,name,district,lat,lon,antivenom_stock,daily_usage_rate,capacity
+H001,District Hospital Warangal,Warangal,18.0000,79.5800,12,3,40
+H002,Community Health Center Mahbubabad,Mahbubabad,17.6000,80.0000,2,4,15
+H003,District Hospital Khammam,Khammam,17.2473,80.1514,20,2,50
+H004,Rural Hospital Bhadrachalam,Bhadrachalam,17.6688,80.8935,4,3,20
+H005,District Hospital Nalgonda,Nalgonda,17.0500,79.2700,15,2,35

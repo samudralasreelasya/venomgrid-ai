@@ -1,0 +1,9 @@
+flask
+flask-cors
+pandas
+scikit-learn
+streamlit
+folium
+streamlit-folium
+requests
+gunicorn
