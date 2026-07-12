@@ -5,7 +5,7 @@ from streamlit_folium import st_folium
 
 API = "https://venomgrid-ai.onrender.com/api"
 st.set_page_config(page_title="VenomGrid AI", layout="wide")
-st.title("🏆 VenomGrid AI")
+st.title(" VenomGrid AI")
 st.caption("Predict. Prepare. Prioritize.")
 
 # ---------- Cached data fetchers ----------
